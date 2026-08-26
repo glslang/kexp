@@ -30,13 +30,12 @@ fn find_process(target_name: &str) -> Option<(HANDLE, u32)> {
                         .unwrap_or(process_entry.szExeFile.len())],
                 );
 
-                if process_name.to_lowercase() == target_name.to_lowercase() {
-                    if let Ok(process_handle) =
+                if process_name.to_lowercase() == target_name.to_lowercase()
+                    && let Ok(process_handle) =
                         OpenProcess(PROCESS_ALL_ACCESS, false, process_entry.th32ProcessID)
-                    {
-                        let _ = CloseHandle(snapshot);
-                        return Some((process_handle, process_entry.th32ProcessID));
-                    }
+                {
+                    let _ = CloseHandle(snapshot);
+                    return Some((process_handle, process_entry.th32ProcessID));
                 }
 
                 // Get next process
