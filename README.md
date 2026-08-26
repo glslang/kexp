@@ -1,5 +1,7 @@
 # win-kexp
 
+[![CI](https://github.com/glslang/kexp/actions/workflows/ci.yml/badge.svg)](https://github.com/glslang/kexp/actions/workflows/ci.yml)
+
 `win-kexp` is a Rust 2024 library of Windows kernel exploitation primitives: shellcode
 (token stealing, ACL editing, `cmd.exe` spawning), process injection, ROP chain construction
 and gadget search, driver IOCTL plumbing, and kernel pool spraying. It targets Windows

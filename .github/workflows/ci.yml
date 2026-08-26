@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows running this workflow manually from the Actions tab.
+  workflow_dispatch:
+
+concurrency:
+  # A superseded push or PR update should cancel its predecessor: five pushes to one PR
+  # otherwise mean five concurrent runs, four of them checking code nobody has any more.
+  #
+  # Manual dispatches are deliberately excluded. A dispatch shares `github.ref` with the
+  # branch's own run, so a shared group would have the two cancel each other, and a repeat
+  # dispatch would kill the run someone had just asked for. Keying dispatches by run id gives
+  # each one a group of its own: never cancelled, never cancelling.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'auto' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Formatting needs neither Windows nor the crate's dependencies, so it does not belong in
+  # the matrix below -- it would just run twice on the expensive runners.
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup update stable && rustup default stable && rustup component add rustfmt
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+  build:
+    name: Build & test (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both architectures are first-class targets here and their shellcode is different
+      # code -- an ARM64 failure should not hide behind an x64 one, or vice versa.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v7
+
+      # `build.rs` shells out to `ml64` (x64) or `armasm64` (ARM64) and neither is on the
+      # runner's PATH by default; this locates whichever Visual Studio the image ships and
+      # adds the assembler for `vs-architecture` to it.
+      - uses: glslang/setup-masm@v1.4
+        with:
+          vs-architecture: ${{ matrix.arch }}
+
+      - name: Install Rust
+        run: rustup update stable && rustup default stable && rustup component add clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+
+      # Without an assembler `build.rs` does not fail -- it turns on `shellcode_fallback` and
+      # carries on with the hardcoded arrays, at which point `test_shellcodes_match_fallback`
+      # compares the fallback to itself and passes for a build that assembled nothing. That is
+      # the one CI result here that would be green and worthless, so check the tool is really
+      # there before anything depends on it.
+      - name: Verify the assembler is on PATH
+        shell: pwsh
+        run: |
+          $tool = if ('${{ matrix.arch }}' -eq 'arm64') { 'armasm64' } else { 'ml64' }
+          $found = Get-Command $tool -ErrorAction SilentlyContinue
+          if (-not $found) {
+            throw "$tool is not on PATH; build.rs would silently fall back to the hardcoded shellcode"
+          }
+          Write-Host "$tool -> $($found.Source)"
+
+      - name: Cargo clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      # `--locked` throughout, deliberately. Cargo.lock is tracked precisely so that a CI
+      # failure means the code changed and not that a transitive dependency published while
+      # the job was queueing; resolving fresh here would give that away and would also hide
+      # a lockfile someone forgot to update alongside Cargo.toml.
+      - name: Build
+        run: cargo build --locked --verbose
+
+      - uses: taiki-e/install-action@nextest
+
+      - name: Test
+        run: cargo nextest run --locked
+
+      # The path taken on a machine with no assembler. Nothing above compiles it -- the point
+      # of the step before this one is that the assembler is always present in CI -- so
+      # without this the fallback arrays and their `cfg` gates are only ever type-checked on
+      # the developer machines that lack `ml64`. Build only: with the feature forced on, the
+      # equality test degenerates to comparing the fallback with itself.
+      - name: Build with the fallback shellcode
+        run: cargo build --locked --features shellcode_fallback
+
+      # ARM64 token stealing assembles differently per Windows version and only 24H2, the
+      # default, is what the test above covers. This is the documented 23H2 invocation, and it
+      # is here so that an edit to the 23H2 branch of `token_stealing_arm64.asm` is caught by
+      # something. Not tested, only assembled: the fallback array it would be compared against
+      # is the 24H2 encoding.
+      - name: Build for 23H2 (ARM64)
+        if: matrix.arch == 'arm64'
+        env:
+          WINDOWS_VERSION: 23H2
+        run: cargo build --locked
