@@ -40,6 +40,11 @@ compiles them into COFF objects in `OUT_DIR`, from which `goblin` extracts the e
 section bytes. With no assembler found, `build.rs` sets the `shellcode_fallback` feature and
 hardcoded byte arrays are returned instead.
 
+That fallback is a convenience, not a result. Every way `build.rs` has of giving up — no
+assembler, a missing source, a source the assembler rejects — leaves the build green with the
+arrays in place, and the equality test below then compares them with themselves. Set
+`WIN_KEXP_REQUIRE_ASSEMBLER=1` to make each of those a build failure instead; CI sets it.
+
 `test_shellcodes_match_fallback` asserts the two paths produce identical bytes — **this is the
 contract to maintain**. Change an `.asm` file and you must update the matching fallback array
 in `src/shellcode.rs`.
