@@ -39,6 +39,15 @@ jobs:
   build:
     name: Build & test (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    env:
+      # Without this, nothing below can fail for the reason this workflow exists. Every way
+      # `build.rs` has of not assembling -- no assembler on PATH, a missing source, a source
+      # `ml64` or `armasm64` rejects -- means "use the hardcoded arrays", and none of them is
+      # an error: clippy, the build and the tests all go green, `test_shellcodes_match_fallback`
+      # among them, by comparing the fallback with itself. Set here, giving up is a build
+      # failure instead. It is what makes that test mean anything, and what makes the 23H2
+      # build at the end of this job a real check on the source it names.
+      WIN_KEXP_REQUIRE_ASSEMBLER: 1
     strategy:
       # Both architectures are first-class targets here and their shellcode is different
       # code -- an ARM64 failure should not hide behind an x64 one, or vice versa.
@@ -66,21 +75,6 @@ jobs:
         with:
           key: ${{ matrix.arch }}
 
-      # Without an assembler `build.rs` does not fail -- it turns on `shellcode_fallback` and
-      # carries on with the hardcoded arrays, at which point `test_shellcodes_match_fallback`
-      # compares the fallback to itself and passes for a build that assembled nothing. That is
-      # the one CI result here that would be green and worthless, so check the tool is really
-      # there before anything depends on it.
-      - name: Verify the assembler is on PATH
-        shell: pwsh
-        run: |
-          $tool = if ('${{ matrix.arch }}' -eq 'arm64') { 'armasm64' } else { 'ml64' }
-          $found = Get-Command $tool -ErrorAction SilentlyContinue
-          if (-not $found) {
-            throw "$tool is not on PATH; build.rs would silently fall back to the hardcoded shellcode"
-          }
-          Write-Host "$tool -> $($found.Source)"
-
       - name: Cargo clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
@@ -96,11 +90,13 @@ jobs:
       - name: Test
         run: cargo nextest run --locked
 
-      # The path taken on a machine with no assembler. Nothing above compiles it -- the point
-      # of the step before this one is that the assembler is always present in CI -- so
-      # without this the fallback arrays and their `cfg` gates are only ever type-checked on
-      # the developer machines that lack `ml64`. Build only: with the feature forced on, the
-      # equality test degenerates to comparing the fallback with itself.
+      # The path taken on a machine with no assembler. Nothing above compiles it -- the whole
+      # point of the job-level environment is that this build never takes that path by itself
+      # -- so without this the fallback arrays and their `cfg` gates would only ever be
+      # type-checked on the developer machines that lack `ml64`. Turning the feature on by
+      # hand does not contradict `WIN_KEXP_REQUIRE_ASSEMBLER`: the sources are still assembled,
+      # the compiled code just reads the arrays instead. Build only, because with the feature
+      # forced on the equality test degenerates to comparing the fallback with itself.
       - name: Build with the fallback shellcode
         run: cargo build --locked --features shellcode_fallback
 

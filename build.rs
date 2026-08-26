@@ -17,6 +17,18 @@ fn main() {
     // after a 24H2 build reuses the 24H2 objects and reports success.
     println!("cargo:rerun-if-env-changed=WINDOWS_VERSION");
 
+    // Falling back is a convenience for machines with no assembler, and it is
+    // deliberately not an error -- but it is also not a *result*. Every way this
+    // script gives up, a rejected source included, leaves the build green with
+    // the hardcoded arrays in place, at which point the one test that compares
+    // the assembled bytes against those arrays is comparing them with
+    // themselves. Somewhere that is not acceptable -- CI -- sets this, and then
+    // giving up is a build failure instead.
+    println!("cargo:rerun-if-env-changed=WIN_KEXP_REQUIRE_ASSEMBLER");
+    let strict = std::env::var("WIN_KEXP_REQUIRE_ASSEMBLER")
+        .map(|value| !matches!(value.trim(), "" | "0"))
+        .unwrap_or(false);
+
     if target_os != "windows" {
         return;
     }
@@ -29,11 +41,24 @@ fn main() {
 
     if assembler_available {
         println!("[+] Assembler found, compiling assembly files");
-        compile_asm_files(&target_arch);
+        compile_asm_files(&target_arch, strict);
     } else {
-        println!("[-] No assembler found, using fallback shellcode");
-        println!("cargo:rustc-cfg=feature=\"shellcode_fallback\"");
+        fall_back(strict, &format!("No assembler found for {}", target_arch));
     }
+}
+
+/// Use the hardcoded shellcode instead of assembling it -- or refuse to, if the
+/// caller has said the assembled bytes are the point of this build.
+fn fall_back(strict: bool, reason: &str) {
+    if strict {
+        panic!(
+            "[-] {reason}. WIN_KEXP_REQUIRE_ASSEMBLER is set, so the fallback \
+             shellcode is not an acceptable substitute for assembling the sources"
+        );
+    }
+
+    println!("[-] {}, using fallback shellcode", reason);
+    println!("cargo:rustc-cfg=feature=\"shellcode_fallback\"");
 }
 
 fn assembler_responds(tool: &str, help_flag: &str) -> bool {
@@ -44,7 +69,7 @@ fn assembler_responds(tool: &str, help_flag: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn compile_asm_files(target_arch: &str) {
+fn compile_asm_files(target_arch: &str, strict: bool) {
     let windows_version_original =
         std::env::var("WINDOWS_VERSION").unwrap_or_else(|_| "24H2".to_string());
     let windows_version = windows_version_original.trim();
@@ -54,11 +79,13 @@ fn compile_asm_files(target_arch: &str) {
     let arm64 = target_arch == "aarch64";
 
     if arm64 && !["23H2", "24H2"].contains(&windows_version) {
-        eprintln!(
-            "[-] Invalid Windows version: {}. Must be either 23H2 or 24H2",
-            windows_version
+        fall_back(
+            strict,
+            &format!(
+                "Invalid Windows version: {}. Must be either 23H2 or 24H2",
+                windows_version
+            ),
         );
-        println!("cargo:rustc-cfg=feature=\"shellcode_fallback\"");
         return;
     }
 
@@ -94,8 +121,7 @@ fn compile_asm_files(target_arch: &str) {
 
     for (source, _) in asm_files {
         if !Path::new(source).exists() {
-            eprintln!("[-] Assembly file not found: {}", source);
-            println!("cargo:rustc-cfg=feature=\"shellcode_fallback\"");
+            fall_back(strict, &format!("Assembly file not found: {}", source));
             return;
         }
     }
@@ -112,7 +138,7 @@ fn compile_asm_files(target_arch: &str) {
         // One rejected source poisons the whole set: `shellcode.rs` reads the
         // objects or the fallback arrays, never a mix of the two.
         if !assembled {
-            println!("cargo:rustc-cfg=feature=\"shellcode_fallback\"");
+            fall_back(strict, &format!("Failed to assemble {}", source));
             return;
         }
     }
