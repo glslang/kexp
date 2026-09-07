@@ -5,7 +5,7 @@ use windows::Win32::System::{
     LibraryLoader::DONT_RESOLVE_DLL_REFERENCES,
     Memory::{PAGE_PROTECTION_FLAGS, VIRTUAL_ALLOCATION_TYPE},
 };
-use windows_core::PSTR;
+use windows::core::PSTR;
 
 pub use windows::{
     Win32::{
@@ -170,7 +170,7 @@ pub fn get_function_address_from_module(h_module: HMODULE, function_name: &str) 
     }
 }
 
-pub fn load_library_no_resolve(dll_name: &str) -> Result<HMODULE, windows_core::Error> {
+pub fn load_library_no_resolve(dll_name: &str) -> Result<HMODULE, windows::core::Error> {
     unsafe {
         LoadLibraryExA(
             PCSTR(format!("{}\0", dll_name).as_ptr()),

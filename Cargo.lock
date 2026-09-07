@@ -146,7 +146,6 @@ dependencies = [
  "hex",
  "thiserror",
  "windows",
- "windows-core",
 ]
 
 [[package]]
