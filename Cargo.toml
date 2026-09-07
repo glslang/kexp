@@ -12,7 +12,7 @@ byte-strings = "0.3.1"
 goblin = "0.10.5"
 hex = "0.4.3"
 thiserror = "2.0.18"
-windows-core = "0.62.2"
+windows-core = "0.100.0"
 
 [dependencies.windows]
 version = "0.62.2"
